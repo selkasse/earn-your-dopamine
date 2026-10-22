@@ -1,7 +1,7 @@
 # Project Context: "Earn Your Dopamine"
 
 **Goal:** Build a Chrome Extension MVP (Manifest V3) that blocks distracting websites (e.g., Twitter) unless the user has pushed a commit to GitHub recently.
-**Philosophy:** Do not overcomplicate. We are not tracking "lines of code" or using OAuth yet. We are simply hitting the public GitHub Events API to check for a recent `PushEvent` from a specific username.
+**Philosophy:** Do not over-complicate. We are not tracking "lines of code" or using OAuth yet. We are simply hitting the public GitHub Events API to check for a recent `PushEvent` from a specific username.
 
 ## Tech Stack
 
