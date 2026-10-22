@@ -3,8 +3,10 @@ const SETTINGS_KEY = "settings";
 const form = document.querySelector("#settings-form");
 const usernameInput = document.querySelector("#username");
 const domainsInput = document.querySelector("#domains");
-const rewardLimitInput = document.querySelector("#reward-limit");
-const rewardUnitInput = document.querySelector("#reward-unit");
+const commitWithinInput = document.querySelector("#commit-within");
+const commitWithinUnitInput = document.querySelector("#commit-within-unit");
+const rewardDurationInput = document.querySelector("#reward-duration");
+const rewardDurationUnitInput = document.querySelector("#reward-duration-unit");
 const blockOpenTabsInput = document.querySelector("#block-open-tabs");
 const status = document.querySelector("#status");
 
@@ -54,8 +56,11 @@ async function loadSettings() {
 
   usernameInput.value = settings.username ?? "";
   domainsInput.value = (settings.domains ?? []).join(", ");
-  rewardLimitInput.value = settings.rewardLimit ?? 30;
-  rewardUnitInput.value = settings.rewardUnit ?? "minutes";
+  // Older versions stored a single window in rewardLimit/rewardUnit.
+  commitWithinInput.value = settings.commitWithin ?? settings.rewardLimit ?? 30;
+  commitWithinUnitInput.value = settings.commitWithinUnit ?? settings.rewardUnit ?? "minutes";
+  rewardDurationInput.value = settings.rewardDuration ?? settings.rewardLimit ?? 30;
+  rewardDurationUnitInput.value = settings.rewardDurationUnit ?? settings.rewardUnit ?? "minutes";
   blockOpenTabsInput.checked = settings.blockOpenTabs !== false;
 }
 
@@ -66,19 +71,27 @@ form.addEventListener("submit", async (event) => {
   try {
     const username = usernameInput.value.trim();
     const domains = parseDomains(domainsInput.value);
-    const rewardLimit = Number(rewardLimitInput.value);
-    const rewardUnit = rewardUnitInput.value;
+    const commitWithin = Number(commitWithinInput.value);
+    const commitWithinUnit = commitWithinUnitInput.value;
+    const rewardDuration = Number(rewardDurationInput.value);
+    const rewardDurationUnit = rewardDurationUnitInput.value;
     const blockOpenTabs = blockOpenTabsInput.checked;
 
     if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(username)) {
       throw new Error("Enter a valid GitHub username.");
     }
-    if (!Number.isFinite(rewardLimit) || rewardLimit < 1) {
-      throw new Error("The reward window must be at least 1 minute.");
+    if (!Number.isFinite(commitWithin) || commitWithin < 1) {
+      throw new Error("The commit window must be at least 1 minute.");
+    }
+    if (!Number.isFinite(rewardDuration) || rewardDuration < 1) {
+      throw new Error("The reward duration must be at least 1 minute.");
     }
 
     await chrome.storage.sync.set({
-      [SETTINGS_KEY]: { username, domains, rewardLimit, rewardUnit, blockOpenTabs }
+      [SETTINGS_KEY]: {
+        username, domains, blockOpenTabs,
+        commitWithin, commitWithinUnit, rewardDuration, rewardDurationUnit
+      }
     });
 
     const origins = domainOrigins(domains);

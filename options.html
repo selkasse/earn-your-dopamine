@@ -26,15 +26,27 @@
           aria-describedby="domains-hint"></textarea>
         <p id="domains-hint" class="hint">Separate domains with commas. Subdomains are included.</p>
 
-        <label for="reward-limit">Reward window</label>
+        <label for="commit-within">Last commit within</label>
         <div class="reward">
-          <input id="reward-limit" name="reward-limit" type="number" min="1" step="1"
+          <input id="commit-within" name="commit-within" type="number" min="1" step="1"
             value="30" required>
-          <select id="reward-unit" name="reward-unit" aria-label="Reward window unit">
+          <select id="commit-within-unit" name="commit-within-unit" aria-label="Commit window unit">
             <option value="minutes">minutes</option>
             <option value="hours">hours</option>
           </select>
         </div>
+        <p class="hint">How recent your latest push must be to earn a reward.</p>
+
+        <label for="reward-duration">Reward lasts for</label>
+        <div class="reward">
+          <input id="reward-duration" name="reward-duration" type="number" min="1" step="1"
+            value="30" required>
+          <select id="reward-duration-unit" name="reward-duration-unit" aria-label="Reward duration unit">
+            <option value="minutes">minutes</option>
+            <option value="hours">hours</option>
+          </select>
+        </div>
+        <p class="hint">How long blocked sites stay unlocked once a push earns a reward. Each push can be redeemed once.</p>
 
         <label class="checkbox" for="block-open-tabs">
           <input id="block-open-tabs" name="block-open-tabs" type="checkbox" checked>

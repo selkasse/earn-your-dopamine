@@ -1,5 +1,6 @@
 const SETTINGS_KEY = "settings";
 const CACHE_KEY = "githubActivityCache";
+const REWARD_KEY = "rewardState";
 const REFRESH_ALARM = "refresh-github-activity";
 const ENFORCE_ALARM = "enforce-open-tabs";
 const REFRESH_INTERVAL_MINUTES = 5;
@@ -25,15 +26,47 @@ function matchesBlockedDomain(hostname, domains) {
   });
 }
 
-function rewardWindowMs(settings) {
-  const multiplier = settings.rewardUnit === "hours" ? 60 * 60 * 1000 : 60 * 1000;
-  return Number(settings.rewardLimit) * multiplier;
+const UNIT_MS = { minutes: 60 * 1000, hours: 60 * 60 * 1000 };
+
+function durationMs(value, unit, fallbackMinutes) {
+  const amount = Number(value);
+  return (Number.isFinite(amount) && amount > 0 ? amount : fallbackMinutes)
+    * (UNIT_MS[unit] ?? UNIT_MS.minutes);
+}
+
+// "Last commit within" setting. Falls back to the legacy single-window setting.
+function commitWithinMs(settings) {
+  return durationMs(
+    settings.commitWithin ?? settings.rewardLimit,
+    settings.commitWithinUnit ?? settings.rewardUnit,
+    30
+  );
+}
+
+// "Reward lasts for" setting. Falls back to the legacy single-window setting.
+function rewardDurationMs(settings) {
+  return durationMs(
+    settings.rewardDuration ?? settings.rewardLimit,
+    settings.rewardDurationUnit ?? settings.rewardUnit,
+    30
+  );
 }
 
 function hasRecentPush(cache, settings, now = Date.now()) {
   return Number.isFinite(cache?.latestPushAt)
     && now - cache.latestPushAt >= 0
-    && now - cache.latestPushAt <= rewardWindowMs(settings);
+    && now - cache.latestPushAt <= commitWithinMs(settings);
+}
+
+async function getRewardState() {
+  const stored = await chrome.storage.local.get(REWARD_KEY);
+  return stored[REWARD_KEY] ?? null;
+}
+
+function rewardActive(reward, settings, now = Date.now()) {
+  return reward?.username === settings.username
+    && Number.isFinite(reward.expiresAt)
+    && now < reward.expiresAt;
 }
 
 async function githubGet(path) {
@@ -102,7 +135,6 @@ async function refreshActivity(settings, { force = false } = {}) {
     const age = now - previousCache.lastCheckedAt;
     const cooldown = force ? FORCE_RECHECK_MIN_MS
       : previousCache.lastError ? REFRESH_INTERVAL_MS
-      : hasRecentPush(previousCache, settings, now) ? REFRESH_INTERVAL_MS
       : BLOCKED_RECHECK_MS;
     if (age < cooldown) return previousCache;
   }
@@ -145,10 +177,28 @@ async function refreshActivity(settings, { force = false } = {}) {
   }
 }
 
+// An active reward needs no API call. Otherwise a push within the "last commit
+// within" window earns a new reward, but each push can be redeemed only once.
 async function checkEligibility(settings, options) {
+  const reward = await getRewardState();
+  if (rewardActive(reward, settings)) return { allowed: true, error: null };
+
   const cache = await refreshActivity(settings, options);
-  const allowed = hasRecentPush(cache, settings);
-  return { allowed, error: allowed ? null : cache.lastError };
+  const alreadyRedeemed = reward?.username === settings.username
+    && Number.isFinite(reward.redeemedPushAt)
+    && cache.latestPushAt <= reward.redeemedPushAt;
+
+  if (hasRecentPush(cache, settings) && !alreadyRedeemed) {
+    await chrome.storage.local.set({
+      [REWARD_KEY]: {
+        username: settings.username,
+        expiresAt: Date.now() + rewardDurationMs(settings),
+        redeemedPushAt: cache.latestPushAt
+      }
+    });
+    return { allowed: true, error: null };
+  }
+  return { allowed: false, error: cache.lastError };
 }
 
 function blockedPageUrl({ site, target, error }) {
@@ -209,6 +259,7 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
 async function runScheduledRefresh() {
   const settings = await getSettings();
   if (!settings?.username) return;
+  if (rewardActive(await getRewardState(), settings)) return;
 
   try {
     await refreshActivity(settings);
