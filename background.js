@@ -320,51 +320,63 @@ function blockOpenTabsEnabled(settings) {
   return settings?.blockOpenTabs !== false;
 }
 
-// Runs inside the page (isolated world). Covers the page with a message instead
-// of navigating away, so the site's session and in-flight requests are untouched.
-function toggleBlockOverlay(show) {
+// Runs inside the page (isolated world). Covers the page with the same blocked
+// screen (markup and CSS come from blocked.html/blocked.css) instead of
+// navigating away, so the site's session and in-flight requests are untouched.
+// It lives in a shadow root so the site's styles can't affect it.
+function toggleBlockOverlay(show, { markup, css, site } = {}) {
   const ID = "earn-your-dopamine-overlay";
   const existing = document.getElementById(ID);
-  if (!show) {
-    existing?.remove();
+  const hide = () => {
+    document.getElementById(ID)?.remove();
     document.documentElement.style.removeProperty("overflow");
-    return;
-  }
+  };
+  if (!show) return hide();
   if (existing) return;
 
-  const overlay = document.createElement("div");
-  overlay.id = ID;
-  overlay.style.cssText = "position:fixed;inset:0;z-index:2147483647;display:flex;"
-    + "flex-direction:column;align-items:center;justify-content:center;gap:16px;"
-    + "background:#102018;color:#f4f7f5;font-family:-apple-system,BlinkMacSystemFont,sans-serif;"
-    + "text-align:center;padding:24px";
+  const host = document.createElement("div");
+  host.id = ID;
+  const root = host.attachShadow({ mode: "open" });
 
-  const title = document.createElement("h1");
-  title.textContent = "No commits detected.";
-  title.style.cssText = "margin:0;font-size:clamp(36px,8vw,64px);color:#f4f7f5";
-  const text = document.createElement("p");
-  text.textContent = "Go push some code, then come back for your reward.";
-  text.style.cssText = "margin:0;font-size:19px;color:#bfccc3";
-  const note = document.createElement("p");
-  note.style.cssText = "margin:0;font-size:14px;color:#ffb4a9";
-  const button = document.createElement("button");
-  button.textContent = "I pushed \u2014 check again";
-  button.style.cssText = "padding:13px 20px;border:0;border-radius:8px;background:#a4e7bb;"
-    + "color:#102018;font:700 16px sans-serif;cursor:pointer";
+  // Constructed stylesheets aren't blocked by a page's CSP, unlike <style>.
+  const sheet = new CSSStyleSheet();
+  sheet.replaceSync(
+    ":host{all:initial;position:fixed;inset:0;z-index:2147483647;display:block;overflow:auto}\n"
+    + css.replace(":root", ":host").replace(/(^|\n)body \{/, "$1.page {")
+  );
+  root.adoptedStyleSheets = [sheet];
+
+  const page = document.createElement("div");
+  page.className = "page";
+  page.innerHTML = markup;
+  root.append(page);
+
+  const context = root.querySelector("#context");
+  const note = root.querySelector("#error");
+  const button = root.querySelector("#recheck");
+  const link = root.querySelector("a");
+  if (site) context.textContent = `${site} is taking a break.`;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+
   button.addEventListener("click", async () => {
     button.disabled = true;
     note.textContent = "Checking\u2026";
     try {
       const result = await chrome.runtime.sendMessage({ type: "recheck" });
-      if (result?.allowed) {
-        overlay.remove();
-        document.documentElement.style.removeProperty("overflow");
-        return;
-      }
+      if (result?.allowed) return hide();
       const time = new Date().toLocaleTimeString();
-      note.textContent = result?.error
-        ? `We couldn't verify your GitHub activity: ${result.error}`
-        : `Checked at ${time}: no recent push found. GitHub can take a minute to show new pushes.`;
+      const withinMinutes = Math.round((result?.commitWithinMs ?? 0) / 60000);
+      if (result?.error) {
+        note.textContent = `We couldn't verify your GitHub activity: ${result.error}`;
+      } else if (!Number.isFinite(result?.latestPushAt)) {
+        note.textContent = `Checked at ${time}: no pushes found on your public GitHub activity.`;
+      } else {
+        const minutesAgo = Math.max(0, Math.round((Date.now() - result.latestPushAt) / 60000));
+        note.textContent = result.alreadyRedeemed && minutesAgo <= withinMinutes
+          ? `Checked at ${time}: your last push (${minutesAgo} min ago) already earned a reward. Push again for another.`
+          : `Checked at ${time}: your last push was ${minutesAgo} min ago, outside your ${withinMinutes} min window. GitHub can take a minute to show new pushes.`;
+      }
     } catch (error) {
       note.textContent = `Something went wrong: ${error.message}`;
     } finally {
@@ -372,20 +384,28 @@ function toggleBlockOverlay(show) {
     }
   });
 
-  overlay.append(title, text, note, button);
-  document.documentElement.append(overlay);
+  document.documentElement.append(host);
   document.documentElement.style.overflow = "hidden";
 }
 
-async function setOverlay(tabId, show) {
+async function loadBlockedScreen() {
+  const [html, css] = await Promise.all([
+    fetch(chrome.runtime.getURL("blocked.html")).then((response) => response.text()),
+    fetch(chrome.runtime.getURL("blocked.css")).then((response) => response.text())
+  ]);
+  return { markup: html.match(/<main>[\s\S]*<\/main>/)[0], css };
+}
+
+async function setOverlay(tab, show) {
   try {
+    const screen = show ? await loadBlockedScreen() : {};
     await chrome.scripting.executeScript({
-      target: { tabId },
+      target: { tabId: tab.id },
       func: toggleBlockOverlay,
-      args: [show]
+      args: [show, { ...screen, site: new URL(tab.url).hostname }]
     });
   } catch (error) {
-    console.error(`Could not update overlay on tab ${tabId}:`, error);
+    console.error(`Could not update overlay on tab ${tab.id}:`, error);
   }
 }
 
@@ -420,7 +440,7 @@ async function enforceOpenTabs() {
   }
 
   // Lift any overlay once a push is found; otherwise cover the open tabs.
-  await Promise.all(blockedTabs.map((tab) => setOverlay(tab.id, !result.allowed)));
+  await Promise.all(blockedTabs.map((tab) => setOverlay(tab, !result.allowed)));
 }
 
 function configureRefreshAlarm() {
