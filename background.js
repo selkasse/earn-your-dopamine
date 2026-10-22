@@ -68,6 +68,91 @@ function positiveNumber(value, fallback) {
   return Number.isFinite(number) && number > 0 ? number : fallback;
 }
 
+function isBlockedTab(tab, settings) {
+  try {
+    return tab.id !== undefined && Boolean(tab.url)
+      && /^https?:$/.test(new URL(tab.url).protocol)
+      && matchesBlockedDomain(new URL(tab.url).hostname, settings.domains);
+  } catch {
+    return false;
+  }
+}
+
+// Runs inside the page (isolated world). Draws a banner at the top of the page
+// while the reward is within the warning threshold: yellow, then red. It keeps
+// itself up to date from expiresAt, so it stays accurate between alarm ticks.
+function renderRewardBanner(state) {
+  const ID = "earn-your-dopamine-banner";
+  clearInterval(window.__earnYourDopamineTimer);
+  document.getElementById(ID)?.remove();
+  if (!state) return;
+
+  const host = document.createElement("div");
+  host.id = ID;
+  const root = host.attachShadow({ mode: "open" });
+  const bar = document.createElement("div");
+  bar.setAttribute("role", "status");
+  const sheet = new CSSStyleSheet();
+  sheet.replaceSync(
+    ".bar{all:initial;position:fixed;top:0;left:0;right:0;z-index:2147483646;"
+    + "box-sizing:border-box;padding:8px 16px;text-align:center;"
+    + "font:600 14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
+    + "box-shadow:0 2px 8px rgb(0 0 0 / 25%)}"
+    + ".yellow{background:#f5b301;color:#2b2100}"
+    + ".red{background:#d93025;color:#fff}"
+  );
+  root.adoptedStyleSheets = [sheet];
+  root.append(bar);
+
+  const tick = () => {
+    const minutesLeft = Math.ceil((state.expiresAt - Date.now()) / 60000);
+    if (minutesLeft <= 0) {
+      clearInterval(window.__earnYourDopamineTimer);
+      host.remove();
+      return;
+    }
+    if (minutesLeft > state.warn) {
+      bar.style.display = "none";
+      return;
+    }
+    bar.style.display = "";
+    bar.className = `bar ${minutesLeft <= state.urgent ? "red" : "yellow"}`;
+    bar.textContent = `Earn Your Dopamine: ${minutesLeft} min of reward time left. `
+      + "Push some code to earn more.";
+  };
+  tick();
+  document.documentElement.append(host);
+  window.__earnYourDopamineTimer = setInterval(tick, 5000);
+}
+
+// Adds, updates or removes the banner on every blocked-site tab (or one tab).
+async function updateBanners(onlyTab) {
+  const settings = await getSettings();
+  if (!settings || !Array.isArray(settings.domains)) return;
+
+  const reward = await getRewardState();
+  const active = rewardActive(reward, settings);
+  const urgent = positiveNumber(settings.badgeUrgentMinutes, DEFAULT_URGENT_MINUTES);
+  const state = active ? {
+    expiresAt: reward.expiresAt,
+    urgent,
+    warn: Math.max(positiveNumber(settings.badgeWarnMinutes, DEFAULT_WARN_MINUTES), urgent)
+  } : null;
+
+  const tabs = onlyTab ? [onlyTab] : await chrome.tabs.query({});
+  await Promise.all(tabs.filter((tab) => isBlockedTab(tab, settings)).map(async (tab) => {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: renderRewardBanner,
+        args: [state]
+      });
+    } catch (error) {
+      console.error(`Could not update banner on tab ${tab.id}:`, error);
+    }
+  }));
+}
+
 // Shows remaining reward minutes: hidden when there's plenty of time, yellow
 // once <= the warning threshold, red once <= the urgent threshold.
 async function updateBadge() {
@@ -96,6 +181,7 @@ async function updateBadge() {
 
 function refreshBadge() {
   updateBadge().catch((error) => console.error("Could not update badge:", error));
+  updateBanners().catch((error) => console.error("Could not update banners:", error));
 }
 
 async function getRewardState() {
@@ -419,15 +505,7 @@ async function enforceOpenTabs() {
   }
 
   const tabs = await chrome.tabs.query({});
-  const blockedTabs = tabs.filter((tab) => {
-    try {
-      return tab.id !== undefined && tab.url
-        && /^https?:$/.test(new URL(tab.url).protocol)
-        && matchesBlockedDomain(new URL(tab.url).hostname, settings.domains);
-    } catch {
-      return false;
-    }
-  });
+  const blockedTabs = tabs.filter((tab) => isBlockedTab(tab, settings));
   if (!blockedTabs.length) return;
 
   let result;
@@ -472,6 +550,14 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "sync" || !changes[SETTINGS_KEY]) return;
   configureRefreshAlarm();
+});
+
+// Pages loaded during a reward get the banner too.
+chrome.webNavigation.onCompleted.addListener((details) => {
+  if (details.frameId !== 0) return;
+  chrome.tabs.get(details.tabId)
+    .then((tab) => updateBanners(tab))
+    .catch((error) => console.error("Could not add banner to new page:", error));
 });
 
 // The blocked page asks for a fresh check after the user pushes code.
