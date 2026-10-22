@@ -1,6 +1,7 @@
 const SETTINGS_KEY = "settings";
 const CACHE_KEY = "githubActivityCache";
 const REFRESH_ALARM = "refresh-github-activity";
+const ENFORCE_ALARM = "enforce-open-tabs";
 const REFRESH_INTERVAL_MINUTES = 5;
 const REFRESH_INTERVAL_MS = REFRESH_INTERVAL_MINUTES * 60 * 1000;
 // While blocked, re-check quickly so a fresh push is noticed (60/hr API limit).
@@ -216,11 +217,59 @@ async function runScheduledRefresh() {
   }
 }
 
+// Enabled unless the user explicitly turned it off in the options page.
+function blockOpenTabsEnabled(settings) {
+  return settings?.blockOpenTabs !== false;
+}
+
+// Redirects already-open tabs on blocked domains once the reward window has
+// expired, so the user doesn't have to refresh first.
+async function enforceOpenTabs() {
+  const settings = await getSettings();
+  if (!settings?.username || !Array.isArray(settings.domains)
+      || !settings.domains.length || !blockOpenTabsEnabled(settings)) {
+    return;
+  }
+
+  const tabs = await chrome.tabs.query({});
+  const blockedTabs = tabs.filter((tab) => {
+    try {
+      return tab.id !== undefined && tab.url
+        && /^https?:$/.test(new URL(tab.url).protocol)
+        && matchesBlockedDomain(new URL(tab.url).hostname, settings.domains);
+    } catch {
+      return false;
+    }
+  });
+  if (!blockedTabs.length) return;
+
+  let result;
+  try {
+    result = await checkEligibility(settings);
+  } catch (error) {
+    console.error("Could not check GitHub activity for open tabs:", error);
+    // Don't kick the user out of open tabs just because the API check failed.
+    return;
+  }
+  if (result.allowed) return;
+
+  for (const tab of blockedTabs) {
+    try {
+      await chrome.tabs.update(tab.id, {
+        url: blockedPageUrl({ site: new URL(tab.url).hostname, target: tab.url })
+      });
+    } catch (error) {
+      console.error(`Could not redirect open tab ${tab.id}:`, error);
+    }
+  }
+}
+
 function configureRefreshAlarm() {
   chrome.alarms.create(REFRESH_ALARM, {
     delayInMinutes: REFRESH_INTERVAL_MINUTES,
     periodInMinutes: REFRESH_INTERVAL_MINUTES
   });
+  chrome.alarms.create(ENFORCE_ALARM, { delayInMinutes: 1, periodInMinutes: 1 });
 }
 
 chrome.runtime.onInstalled.addListener(configureRefreshAlarm);
@@ -229,6 +278,11 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === REFRESH_ALARM) {
     runScheduledRefresh().catch((error) => {
       console.error("Could not run scheduled GitHub activity check:", error);
+    });
+  }
+  if (alarm.name === ENFORCE_ALARM) {
+    enforceOpenTabs().catch((error) => {
+      console.error("Could not enforce blocking on open tabs:", error);
     });
   }
 });

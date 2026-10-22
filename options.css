@@ -124,3 +124,15 @@ button:hover {
 #status[data-error="true"] {
   color: #b42318;
 }
+
+label.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+}
+
+label.checkbox input {
+  width: auto;
+  min-height: 0;
+}

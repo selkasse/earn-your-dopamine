@@ -5,6 +5,7 @@ const usernameInput = document.querySelector("#username");
 const domainsInput = document.querySelector("#domains");
 const rewardLimitInput = document.querySelector("#reward-limit");
 const rewardUnitInput = document.querySelector("#reward-unit");
+const blockOpenTabsInput = document.querySelector("#block-open-tabs");
 const status = document.querySelector("#status");
 
 function parseDomains(value) {
@@ -55,6 +56,7 @@ async function loadSettings() {
   domainsInput.value = (settings.domains ?? []).join(", ");
   rewardLimitInput.value = settings.rewardLimit ?? 30;
   rewardUnitInput.value = settings.rewardUnit ?? "minutes";
+  blockOpenTabsInput.checked = settings.blockOpenTabs !== false;
 }
 
 form.addEventListener("submit", async (event) => {
@@ -66,6 +68,7 @@ form.addEventListener("submit", async (event) => {
     const domains = parseDomains(domainsInput.value);
     const rewardLimit = Number(rewardLimitInput.value);
     const rewardUnit = rewardUnitInput.value;
+    const blockOpenTabs = blockOpenTabsInput.checked;
 
     if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(username)) {
       throw new Error("Enter a valid GitHub username.");
@@ -75,7 +78,7 @@ form.addEventListener("submit", async (event) => {
     }
 
     await chrome.storage.sync.set({
-      [SETTINGS_KEY]: { username, domains, rewardLimit, rewardUnit }
+      [SETTINGS_KEY]: { username, domains, rewardLimit, rewardUnit, blockOpenTabs }
     });
 
     const origins = domainOrigins(domains);
