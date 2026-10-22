@@ -8,6 +8,8 @@ const commitWithinUnitInput = document.querySelector("#commit-within-unit");
 const rewardDurationInput = document.querySelector("#reward-duration");
 const rewardDurationUnitInput = document.querySelector("#reward-duration-unit");
 const blockOpenTabsInput = document.querySelector("#block-open-tabs");
+const badgeWarnInput = document.querySelector("#badge-warn");
+const badgeUrgentInput = document.querySelector("#badge-urgent");
 const status = document.querySelector("#status");
 
 function parseDomains(value) {
@@ -61,6 +63,8 @@ async function loadSettings() {
   commitWithinUnitInput.value = settings.commitWithinUnit ?? settings.rewardUnit ?? "minutes";
   rewardDurationInput.value = settings.rewardDuration ?? settings.rewardLimit ?? 30;
   rewardDurationUnitInput.value = settings.rewardDurationUnit ?? settings.rewardUnit ?? "minutes";
+  badgeWarnInput.value = settings.badgeWarnMinutes ?? 5;
+  badgeUrgentInput.value = settings.badgeUrgentMinutes ?? 1;
   blockOpenTabsInput.checked = settings.blockOpenTabs !== false;
 }
 
@@ -75,6 +79,8 @@ form.addEventListener("submit", async (event) => {
     const commitWithinUnit = commitWithinUnitInput.value;
     const rewardDuration = Number(rewardDurationInput.value);
     const rewardDurationUnit = rewardDurationUnitInput.value;
+    const badgeWarnMinutes = Number(badgeWarnInput.value);
+    const badgeUrgentMinutes = Number(badgeUrgentInput.value);
     const blockOpenTabs = blockOpenTabsInput.checked;
 
     if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(username)) {
@@ -87,9 +93,17 @@ form.addEventListener("submit", async (event) => {
       throw new Error("The reward duration must be at least 1 minute.");
     }
 
+    if (!Number.isInteger(badgeWarnMinutes) || !Number.isInteger(badgeUrgentMinutes)
+        || badgeUrgentMinutes < 1) {
+      throw new Error("Badge thresholds must be whole numbers of at least 1 minute.");
+    }
+    if (badgeUrgentMinutes >= badgeWarnMinutes) {
+      throw new Error("The red badge threshold must be lower than the yellow one.");
+    }
+
     await chrome.storage.sync.set({
       [SETTINGS_KEY]: {
-        username, domains, blockOpenTabs,
+        username, domains, blockOpenTabs, badgeWarnMinutes, badgeUrgentMinutes,
         commitWithin, commitWithinUnit, rewardDuration, rewardDurationUnit
       }
     });

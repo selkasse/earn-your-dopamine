@@ -3,6 +3,11 @@ const CACHE_KEY = "githubActivityCache";
 const REWARD_KEY = "rewardState";
 const REFRESH_ALARM = "refresh-github-activity";
 const ENFORCE_ALARM = "enforce-open-tabs";
+const BADGE_ALARM = "update-badge";
+const BADGE_YELLOW = "#f5b301";
+const BADGE_RED = "#d93025";
+const DEFAULT_WARN_MINUTES = 5;
+const DEFAULT_URGENT_MINUTES = 1;
 const REFRESH_INTERVAL_MINUTES = 5;
 const REFRESH_INTERVAL_MS = REFRESH_INTERVAL_MINUTES * 60 * 1000;
 // While blocked, re-check quickly so a fresh push is noticed (60/hr API limit).
@@ -56,6 +61,41 @@ function hasRecentPush(cache, settings, now = Date.now()) {
   return Number.isFinite(cache?.latestPushAt)
     && now - cache.latestPushAt >= 0
     && now - cache.latestPushAt <= commitWithinMs(settings);
+}
+
+function positiveNumber(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+// Shows remaining reward minutes: hidden when there's plenty of time, yellow
+// once <= the warning threshold, red once <= the urgent threshold.
+async function updateBadge() {
+  const settings = await getSettings();
+  const reward = await getRewardState();
+  const now = Date.now();
+
+  if (!settings || !rewardActive(reward, settings, now)) {
+    await chrome.action.setBadgeText({ text: "" });
+    return;
+  }
+
+  const minutesLeft = Math.max(1, Math.ceil((reward.expiresAt - now) / UNIT_MS.minutes));
+  const urgent = positiveNumber(settings.badgeUrgentMinutes, DEFAULT_URGENT_MINUTES);
+  const warn = Math.max(positiveNumber(settings.badgeWarnMinutes, DEFAULT_WARN_MINUTES), urgent);
+
+  if (minutesLeft > warn) {
+    await chrome.action.setBadgeText({ text: "" });
+    return;
+  }
+  await chrome.action.setBadgeBackgroundColor({
+    color: minutesLeft <= urgent ? BADGE_RED : BADGE_YELLOW
+  });
+  await chrome.action.setBadgeText({ text: String(minutesLeft) });
+}
+
+function refreshBadge() {
+  updateBadge().catch((error) => console.error("Could not update badge:", error));
 }
 
 async function getRewardState() {
@@ -196,9 +236,16 @@ async function checkEligibility(settings, options) {
         redeemedPushAt: cache.latestPushAt
       }
     });
+    refreshBadge();
     return { allowed: true, error: null };
   }
-  return { allowed: false, error: cache.lastError };
+  return {
+    allowed: false,
+    error: cache.lastError,
+    latestPushAt: cache.latestPushAt,
+    alreadyRedeemed,
+    commitWithinMs: commitWithinMs(settings)
+  };
 }
 
 function blockedPageUrl({ site, target, error }) {
@@ -306,7 +353,7 @@ function toggleBlockOverlay(show) {
     + "color:#102018;font:700 16px sans-serif;cursor:pointer";
   button.addEventListener("click", async () => {
     button.disabled = true;
-    note.textContent = "";
+    note.textContent = "Checking\u2026";
     try {
       const result = await chrome.runtime.sendMessage({ type: "recheck" });
       if (result?.allowed) {
@@ -314,9 +361,12 @@ function toggleBlockOverlay(show) {
         document.documentElement.style.removeProperty("overflow");
         return;
       }
+      const time = new Date().toLocaleTimeString();
       note.textContent = result?.error
         ? `We couldn't verify your GitHub activity: ${result.error}`
-        : "Still no recent push found. GitHub can take a minute to show new activity.";
+        : `Checked at ${time}: no recent push found. GitHub can take a minute to show new pushes.`;
+    } catch (error) {
+      note.textContent = `Something went wrong: ${error.message}`;
     } finally {
       button.disabled = false;
     }
@@ -379,6 +429,8 @@ function configureRefreshAlarm() {
     periodInMinutes: REFRESH_INTERVAL_MINUTES
   });
   chrome.alarms.create(ENFORCE_ALARM, { delayInMinutes: 1, periodInMinutes: 1 });
+  chrome.alarms.create(BADGE_ALARM, { delayInMinutes: 1, periodInMinutes: 1 });
+  refreshBadge();
 }
 
 chrome.runtime.onInstalled.addListener(configureRefreshAlarm);
@@ -389,6 +441,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
       console.error("Could not run scheduled GitHub activity check:", error);
     });
   }
+  if (alarm.name === BADGE_ALARM) refreshBadge();
   if (alarm.name === ENFORCE_ALARM) {
     enforceOpenTabs().catch((error) => {
       console.error("Could not enforce blocking on open tabs:", error);
