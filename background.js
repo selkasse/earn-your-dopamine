@@ -3,6 +3,9 @@ const CACHE_KEY = "githubActivityCache";
 const REFRESH_ALARM = "refresh-github-activity";
 const REFRESH_INTERVAL_MINUTES = 5;
 const REFRESH_INTERVAL_MS = REFRESH_INTERVAL_MINUTES * 60 * 1000;
+// While blocked, re-check quickly so a fresh push is noticed (60/hr API limit).
+const BLOCKED_RECHECK_MS = 60 * 1000;
+const FORCE_RECHECK_MIN_MS = 10 * 1000;
 
 const navigationChecks = new Map();
 const activityRefreshes = new Map();
@@ -32,11 +35,12 @@ function hasRecentPush(cache, settings, now = Date.now()) {
     && now - cache.latestPushAt <= rewardWindowMs(settings);
 }
 
-async function fetchLatestPush(username) {
-  const response = await fetch(
-    `https://api.github.com/users/${encodeURIComponent(username)}/events/public`,
-    { headers: { Accept: "application/vnd.github+json" } }
-  );
+async function githubGet(path) {
+  // GitHub sends max-age=300; bypass the browser cache so re-checks see new pushes.
+  const response = await fetch(`https://api.github.com${path}`, {
+    cache: "no-store",
+    headers: { Accept: "application/vnd.github+json" }
+  });
 
   if (!response.ok) {
     if (response.status === 403 || response.status === 429) {
@@ -52,7 +56,15 @@ async function fetchLatestPush(username) {
     throw new Error(`GitHub API returned HTTP ${response.status}.`);
   }
 
-  const events = await response.json();
+  return response.json();
+}
+
+// Returns the newest push time (ms) from two sources: the events feed (the
+// plan's source, but delayed by minutes) and the most recently pushed repo's
+// pushed_at, which GitHub updates almost immediately.
+async function fetchLatestPush(username) {
+  const user = encodeURIComponent(username);
+  const events = await githubGet(`/users/${user}/events/public`);
   if (!Array.isArray(events)) {
     throw new Error("GitHub returned an unexpected events response.");
   }
@@ -60,8 +72,19 @@ async function fetchLatestPush(username) {
   const latestPush = events.find((event) =>
     event?.type === "PushEvent" && typeof event.created_at === "string"
   );
-  const timestamp = latestPush ? Date.parse(latestPush.created_at) : NaN;
-  return Number.isFinite(timestamp) ? timestamp : null;
+  const times = [latestPush ? Date.parse(latestPush.created_at) : NaN];
+
+  try {
+    const repos = await githubGet(`/users/${user}/repos?sort=pushed&per_page=1`);
+    if (Array.isArray(repos) && repos[0]?.pushed_at) {
+      times.push(Date.parse(repos[0].pushed_at));
+    }
+  } catch (error) {
+    console.warn("Could not read repository push times:", error);
+  }
+
+  const valid = times.filter(Number.isFinite);
+  return valid.length ? Math.max(...valid) : null;
 }
 
 async function getActivityCache() {
@@ -73,10 +96,14 @@ async function refreshActivity(settings, { force = false } = {}) {
   const previousCache = await getActivityCache();
   const now = Date.now();
 
-  if (!force && previousCache?.username === settings.username
-      && Number.isFinite(previousCache.lastCheckedAt)
-      && now - previousCache.lastCheckedAt < REFRESH_INTERVAL_MS) {
-    return previousCache;
+  if (previousCache?.username === settings.username
+      && Number.isFinite(previousCache.lastCheckedAt)) {
+    const age = now - previousCache.lastCheckedAt;
+    const cooldown = force ? FORCE_RECHECK_MIN_MS
+      : previousCache.lastError ? REFRESH_INTERVAL_MS
+      : hasRecentPush(previousCache, settings, now) ? REFRESH_INTERVAL_MS
+      : BLOCKED_RECHECK_MS;
+    if (age < cooldown) return previousCache;
   }
 
   const inFlightRefresh = activityRefreshes.get(settings.username);
@@ -117,15 +144,16 @@ async function refreshActivity(settings, { force = false } = {}) {
   }
 }
 
-async function checkEligibility(settings) {
-  const cache = await refreshActivity(settings);
+async function checkEligibility(settings, options) {
+  const cache = await refreshActivity(settings, options);
   const allowed = hasRecentPush(cache, settings);
   return { allowed, error: allowed ? null : cache.lastError };
 }
 
-function blockedPageUrl({ site, error }) {
+function blockedPageUrl({ site, target, error }) {
   const url = new URL(chrome.runtime.getURL("blocked.html"));
   if (site) url.searchParams.set("site", site);
+  if (target) url.searchParams.set("target", target);
   if (error) url.searchParams.set("error", error);
   return url.href;
 }
@@ -167,7 +195,7 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
 
     try {
       await chrome.tabs.update(details.tabId, {
-        url: blockedPageUrl({ site: destination.hostname, error: result.error })
+        url: blockedPageUrl({ site: destination.hostname, target: details.url, error: result.error })
       });
     } catch (error) {
       console.error(`Could not redirect tab ${details.tabId}:`, error);
@@ -208,4 +236,19 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "sync" || !changes[SETTINGS_KEY]) return;
   configureRefreshAlarm();
+});
+
+// The blocked page asks for a fresh check after the user pushes code.
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type !== "recheck") return;
+
+  getSettings().then(async (settings) => {
+    if (!settings?.username) return { allowed: false, error: "No GitHub username is configured." };
+    try {
+      return await checkEligibility(settings, { force: true });
+    } catch (error) {
+      return { allowed: false, error: error.message };
+    }
+  }).then(sendResponse);
+  return true;
 });
