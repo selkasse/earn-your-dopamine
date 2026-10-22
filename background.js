@@ -222,7 +222,73 @@ function blockOpenTabsEnabled(settings) {
   return settings?.blockOpenTabs !== false;
 }
 
-// Redirects already-open tabs on blocked domains once the reward window has
+// Runs inside the page (isolated world). Covers the page with a message instead
+// of navigating away, so the site's session and in-flight requests are untouched.
+function toggleBlockOverlay(show) {
+  const ID = "earn-your-dopamine-overlay";
+  const existing = document.getElementById(ID);
+  if (!show) {
+    existing?.remove();
+    document.documentElement.style.removeProperty("overflow");
+    return;
+  }
+  if (existing) return;
+
+  const overlay = document.createElement("div");
+  overlay.id = ID;
+  overlay.style.cssText = "position:fixed;inset:0;z-index:2147483647;display:flex;"
+    + "flex-direction:column;align-items:center;justify-content:center;gap:16px;"
+    + "background:#102018;color:#f4f7f5;font-family:-apple-system,BlinkMacSystemFont,sans-serif;"
+    + "text-align:center;padding:24px";
+
+  const title = document.createElement("h1");
+  title.textContent = "No commits detected.";
+  title.style.cssText = "margin:0;font-size:clamp(36px,8vw,64px);color:#f4f7f5";
+  const text = document.createElement("p");
+  text.textContent = "Go push some code, then come back for your reward.";
+  text.style.cssText = "margin:0;font-size:19px;color:#bfccc3";
+  const note = document.createElement("p");
+  note.style.cssText = "margin:0;font-size:14px;color:#ffb4a9";
+  const button = document.createElement("button");
+  button.textContent = "I pushed \u2014 check again";
+  button.style.cssText = "padding:13px 20px;border:0;border-radius:8px;background:#a4e7bb;"
+    + "color:#102018;font:700 16px sans-serif;cursor:pointer";
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    note.textContent = "";
+    try {
+      const result = await chrome.runtime.sendMessage({ type: "recheck" });
+      if (result?.allowed) {
+        overlay.remove();
+        document.documentElement.style.removeProperty("overflow");
+        return;
+      }
+      note.textContent = result?.error
+        ? `We couldn't verify your GitHub activity: ${result.error}`
+        : "Still no recent push found. GitHub can take a minute to show new activity.";
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  overlay.append(title, text, note, button);
+  document.documentElement.append(overlay);
+  document.documentElement.style.overflow = "hidden";
+}
+
+async function setOverlay(tabId, show) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: toggleBlockOverlay,
+      args: [show]
+    });
+  } catch (error) {
+    console.error(`Could not update overlay on tab ${tabId}:`, error);
+  }
+}
+
+// Blocks already-open tabs on blocked domains once the reward window has
 // expired, so the user doesn't have to refresh first.
 async function enforceOpenTabs() {
   const settings = await getSettings();
@@ -251,17 +317,9 @@ async function enforceOpenTabs() {
     // Don't kick the user out of open tabs just because the API check failed.
     return;
   }
-  if (result.allowed) return;
 
-  for (const tab of blockedTabs) {
-    try {
-      await chrome.tabs.update(tab.id, {
-        url: blockedPageUrl({ site: new URL(tab.url).hostname, target: tab.url })
-      });
-    } catch (error) {
-      console.error(`Could not redirect open tab ${tab.id}:`, error);
-    }
-  }
+  // Lift any overlay once a push is found; otherwise cover the open tabs.
+  await Promise.all(blockedTabs.map((tab) => setOverlay(tab.id, !result.allowed)));
 }
 
 function configureRefreshAlarm() {
