@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Earn Your Dopamine",
+  "version": "1.0.0",
+  "description": "Unlock distracting websites after a recent GitHub push.",
+  "permissions": [
+    "storage",
+    "webNavigation",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://api.github.com/*"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html",
+  "action": {
+    "default_title": "Earn Your Dopamine",
+    "default_popup": "options.html"
+  }
+}

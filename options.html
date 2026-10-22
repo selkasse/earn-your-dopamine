@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Earn Your Dopamine — Settings</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <main class="settings">
+      <header>
+        <p class="eyebrow">Earn Your Dopamine</p>
+        <h1>Make focus the default.</h1>
+        <p class="intro">Push code to unlock your distracting sites for a little while.</p>
+      </header>
+
+      <form id="settings-form">
+        <label for="username">GitHub username</label>
+        <input id="username" name="username" type="text" autocomplete="username"
+          placeholder="octocat" required>
+        <p class="hint">We check your public GitHub activity. No token is needed.</p>
+
+        <label for="domains">Blocked domains</label>
+        <textarea id="domains" name="domains" rows="4"
+          placeholder="x.com, twitter.com, reddit.com"
+          aria-describedby="domains-hint"></textarea>
+        <p id="domains-hint" class="hint">Separate domains with commas. Subdomains are included.</p>
+
+        <label for="reward-limit">Reward window</label>
+        <div class="reward">
+          <input id="reward-limit" name="reward-limit" type="number" min="1" step="1"
+            value="30" required>
+          <select id="reward-unit" name="reward-unit" aria-label="Reward window unit">
+            <option value="minutes">minutes</option>
+            <option value="hours">hours</option>
+          </select>
+        </div>
+
+        <button type="submit">Save settings</button>
+        <p id="status" role="status" aria-live="polite"></p>
+      </form>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>
