@@ -5,8 +5,9 @@ const REFRESH_ALARM = "refresh-github-activity";
 const ENFORCE_ALARM = "enforce-open-tabs";
 const BADGE_ALARM = "update-badge";
 const REWARD_END_ALARM = "reward-ended";
-// The events feed and a repo's pushed_at time the same push a few seconds apart.
-const SAME_PUSH_TOLERANCE_MS = 2 * 60 * 1000;
+// The events feed and a repo's pushed_at stamp the same push a few seconds
+// apart; keep this small so a genuinely new push is recognized right away.
+const SAME_PUSH_TOLERANCE_MS = 15 * 1000;
 const BADGE_YELLOW = "#f5b301";
 const BADGE_RED = "#d93025";
 const DEFAULT_WARN_MINUTES = 5;
