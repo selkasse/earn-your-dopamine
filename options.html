@@ -15,17 +15,14 @@
       </header>
 
       <form id="settings-form">
-        <label for="username">GitHub username</label>
-        <input id="username" name="username" type="text" autocomplete="username"
-          placeholder="octocat" required>
-        <p class="hint">We check your public GitHub activity.</p>
-
         <span class="label">GitHub sign-in</span>
         <div id="auth">
           <p id="auth-text" class="hint"></p>
+          <p id="auth-code" class="auth-code" hidden></p>
+          <button type="button" id="auth-open-button" hidden>Copy Code &amp; Open GitHub</button>
           <button type="button" id="auth-button"></button>
+          <button type="button" id="auth-cancel-button" hidden>Cancel sign-in</button>
         </div>
-        <p class="hint">Optional. Signing in raises GitHub's rate limit from 60 to 5,000 requests per hour. No permissions beyond public data are requested.</p>
 
         <label for="domains">Blocked domains</label>
         <textarea id="domains" name="domains" rows="4"

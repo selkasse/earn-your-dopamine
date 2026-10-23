@@ -1,7 +1,6 @@
 const SETTINGS_KEY = "settings";
 
 const form = document.querySelector("#settings-form");
-const usernameInput = document.querySelector("#username");
 const domainsInput = document.querySelector("#domains");
 const commitWithinInput = document.querySelector("#commit-within");
 const commitWithinUnitInput = document.querySelector("#commit-within-unit");
@@ -59,7 +58,6 @@ async function loadSettings() {
   const settings = stored[SETTINGS_KEY];
   if (!settings) return;
 
-  usernameInput.value = settings.username ?? "";
   domainsInput.value = (settings.domains ?? []).join(", ");
   // Older versions stored a single window in rewardLimit/rewardUnit.
   commitWithinInput.value = settings.commitWithin ?? settings.rewardLimit ?? 30;
@@ -80,7 +78,6 @@ form.addEventListener("submit", async (event) => {
   showStatus("");
 
   try {
-    const username = usernameInput.value.trim();
     const domains = parseDomains(domainsInput.value);
     const commitWithin = Number(commitWithinInput.value);
     const commitWithinUnit = commitWithinUnitInput.value;
@@ -93,9 +90,6 @@ form.addEventListener("submit", async (event) => {
     const bannerPosition = bannerPositionInput.value === "top" ? "top" : "bottom";
     const blockOpenTabs = blockOpenTabsInput.checked;
 
-    if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(username)) {
-      throw new Error("Enter a valid GitHub username.");
-    }
     if (!Number.isFinite(commitWithin) || commitWithin < 1) {
       throw new Error("The commit window must be at least 1 minute.");
     }
@@ -113,7 +107,7 @@ form.addEventListener("submit", async (event) => {
 
     await chrome.storage.sync.set({
       [SETTINGS_KEY]: {
-        username, domains, blockOpenTabs, badgeWarnMinutes, badgeUrgentMinutes,
+        domains, blockOpenTabs, badgeWarnMinutes, badgeUrgentMinutes,
         badgeEnabled, bannerEnabled, bannerPosition,
         commitWithin, commitWithinUnit, rewardDuration, rewardDurationUnit
       }
@@ -137,22 +131,40 @@ bannerEnabledInput.addEventListener("change", () => {
 });
 
 const authText = document.querySelector("#auth-text");
+const authCode = document.querySelector("#auth-code");
 const authButton = document.querySelector("#auth-button");
+const authOpenButton = document.querySelector("#auth-open-button");
+const authCancelButton = document.querySelector("#auth-cancel-button");
 
 async function renderAuth() {
   const stored = await chrome.storage.local.get(["githubAuth", "githubDeviceFlow"]);
   const flow = stored.githubDeviceFlow;
   authButton.disabled = false;
+  authOpenButton.disabled = false;
+  authCancelButton.disabled = false;
   if (stored.githubAuth?.token) {
-    authText.textContent = "Signed in with GitHub.";
+    authCode.hidden = true;
+    authOpenButton.hidden = true;
+    authCancelButton.hidden = true;
+    authButton.hidden = false;
+    authText.textContent = stored.githubAuth.username
+      ? "Signed in with GitHub."
+      : "Please sign out and sign in again to connect your GitHub account.";
     authButton.textContent = "Sign out";
     authButton.dataset.action = "signOut";
   } else if (flow && !flow.error) {
-    authText.textContent = `Enter code ${flow.userCode} at ${flow.verificationUri}, then return here.`;
-    authButton.textContent = "Cancel";
-    authButton.dataset.action = "cancelSignIn";
+    authText.textContent = "Use this code to authorize Earn Your Dopamine on GitHub.";
+    authCode.textContent = flow.userCode;
+    authCode.hidden = false;
+    authOpenButton.hidden = false;
+    authCancelButton.hidden = false;
+    authButton.hidden = true;
   } else {
     authText.textContent = flow?.error ?? "Not signed in.";
+    authCode.hidden = true;
+    authOpenButton.hidden = true;
+    authCancelButton.hidden = true;
+    authButton.hidden = false;
     authButton.textContent = "Sign in with GitHub";
     authButton.dataset.action = "startSignIn";
   }
@@ -161,13 +173,44 @@ async function renderAuth() {
 authButton.addEventListener("click", async () => {
   authButton.disabled = true;
   const action = authButton.dataset.action;
-  const result = await chrome.runtime.sendMessage({ type: action });
-  if (result?.error) {
-    showStatus(result.error, true);
-  } else if (action === "startSignIn" && result?.verificationUri) {
-    window.open(result.verificationUri, "_blank", "noopener");
+  try {
+    const result = await chrome.runtime.sendMessage({ type: action });
+    if (result?.error) showStatus(result.error, true);
+  } catch (error) {
+    showStatus(`GitHub sign-in failed: ${error.message}`, true);
+  } finally {
+    await renderAuth();
   }
-  await renderAuth();
+});
+
+authOpenButton.addEventListener("click", async () => {
+  authOpenButton.disabled = true;
+  try {
+    const stored = await chrome.storage.local.get("githubDeviceFlow");
+    const flow = stored.githubDeviceFlow;
+    if (!flow?.userCode || !flow?.verificationUri || flow.error) {
+      throw new Error("The sign-in code is no longer available. Start sign-in again.");
+    }
+    await navigator.clipboard.writeText(flow.userCode);
+    window.open(flow.verificationUri, "_blank", "noopener");
+    showStatus("Code copied. GitHub is opening.");
+  } catch (error) {
+    showStatus(`Couldn't copy the sign-in code: ${error.message}`, true);
+  } finally {
+    authOpenButton.disabled = false;
+  }
+});
+
+authCancelButton.addEventListener("click", async () => {
+  authCancelButton.disabled = true;
+  try {
+    const result = await chrome.runtime.sendMessage({ type: "cancelSignIn" });
+    if (result?.error) showStatus(result.error, true);
+  } catch (error) {
+    showStatus(`Couldn't cancel sign-in: ${error.message}`, true);
+  } finally {
+    await renderAuth();
+  }
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {

@@ -30,8 +30,15 @@ const activityRefreshes = new Map();
 let nextNavigationCheckId = 0;
 
 async function getSettings() {
-  const stored = await chrome.storage.sync.get(SETTINGS_KEY);
-  return stored[SETTINGS_KEY] ?? null;
+  const [settings, auth] = await Promise.all([
+    chrome.storage.sync.get(SETTINGS_KEY),
+    chrome.storage.local.get(AUTH_KEY),
+  ]);
+  if (!settings[SETTINGS_KEY]) return null;
+  return {
+    ...settings[SETTINGS_KEY],
+    username: auth[AUTH_KEY]?.username ?? null,
+  };
 }
 
 function matchesBlockedDomain(hostname, domains) {
@@ -272,12 +279,9 @@ function formatResetTime(untilMs) {
   return new Date(untilMs).toLocaleTimeString();
 }
 
-function rateLimitError(untilMs, authed) {
-  const hint = authed
-    ? ""
-    : " Sign in with GitHub in the extension settings to raise the limit.";
+function rateLimitError(untilMs) {
   return new Error(
-    `GitHub API rate limit reached. Try again after ${formatResetTime(untilMs)}.${hint}`,
+    `GitHub API rate limit reached. Try again after ${formatResetTime(untilMs)}.`,
   );
 }
 
@@ -289,7 +293,7 @@ async function githubGet(path, { retryUnauthenticated = true } = {}) {
   const stored = await chrome.storage.local.get([RATE_LIMIT_KEY, ETAG_KEY]);
   const limit = stored[RATE_LIMIT_KEY];
   if (limit && limit.authed === authed && Date.now() < limit.until) {
-    throw rateLimitError(limit.until, authed);
+    throw rateLimitError(limit.until);
   }
 
   // Conditional requests that return 304 don't count against the rate limit.
@@ -329,7 +333,7 @@ async function githubGet(path, { retryUnauthenticated = true } = {}) {
             ? resetAt
             : Date.now() + 60 * 1000;
       await chrome.storage.local.set({ [RATE_LIMIT_KEY]: { until, authed } });
-      throw rateLimitError(until, authed);
+      throw rateLimitError(until);
     }
     if (response.status === 403) {
       throw new Error("GitHub denied the request (HTTP 403).");
@@ -373,6 +377,7 @@ async function githubForm(url, params) {
 async function startDeviceFlow() {
   const data = await githubForm("https://github.com/login/device/code", {
     client_id: GITHUB_CLIENT_ID,
+    scope: "read:user",
   });
   if (!data.device_code) {
     throw new Error(
@@ -435,8 +440,26 @@ async function pollDeviceFlow() {
   }
 
   if (data.access_token) {
+    let account;
+    try {
+      const response = await fetch("https://api.github.com/user", {
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${data.access_token}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error(`GitHub returned HTTP ${response.status} while loading your account.`);
+      }
+      account = await response.json();
+      if (typeof account.login !== "string" || !account.login) {
+        throw new Error("GitHub did not return an account username.");
+      }
+    } catch (error) {
+      return fail(`Couldn't load your GitHub account: ${error.message}`);
+    }
     await chrome.storage.local.set({
-      [AUTH_KEY]: { token: data.access_token },
+      [AUTH_KEY]: { token: data.access_token, username: account.login },
     });
     await chrome.storage.local.remove([DEVICE_FLOW_KEY, RATE_LIMIT_KEY]);
     chrome.alarms.clear(DEVICE_POLL_ALARM);
@@ -553,6 +576,13 @@ async function refreshActivity(settings, { force = false } = {}) {
 // An active reward needs no API call. Otherwise a push within the "last commit
 // within" window earns a new reward, but each push can be redeemed only once.
 async function checkEligibility(settings, options) {
+  if (!settings?.username) {
+    return {
+      allowed: false,
+      error: "Sign in with GitHub in the extension settings to check your activity.",
+    };
+  }
+
   const reward = await getRewardState();
   if (rewardActive(reward, settings)) return { allowed: true, error: null };
 
@@ -611,7 +641,7 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
     .then(async (settings) => {
       if (navigationChecks.get(details.tabId) !== requestId) return;
       if (
-        !settings?.username ||
+        !settings ||
         !Array.isArray(settings.domains) ||
         !matchesBlockedDomain(destination.hostname, settings.domains)
       ) {
@@ -772,7 +802,7 @@ async function setOverlay(tab, show) {
 async function enforceOpenTabs() {
   const settings = await getSettings();
   if (
-    !settings?.username ||
+    !settings ||
     !Array.isArray(settings.domains) ||
     !settings.domains.length ||
     !blockOpenTabsEnabled(settings)
@@ -875,8 +905,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     try {
       const settings = await getSettings();
-      if (!settings?.username)
-        return { allowed: false, error: "No GitHub username is configured." };
+      if (!settings) return { allowed: false, error: "Extension settings are not available." };
+      if (!settings.username) {
+        return {
+          allowed: false,
+          error: "Sign in with GitHub in the extension settings to check your activity.",
+        };
+      }
       return await checkEligibility(settings, { force: true });
     } catch (error) {
       return { allowed: false, error: error?.message || String(error) };
