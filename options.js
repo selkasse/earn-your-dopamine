@@ -10,6 +10,9 @@ const rewardDurationUnitInput = document.querySelector("#reward-duration-unit");
 const blockOpenTabsInput = document.querySelector("#block-open-tabs");
 const badgeWarnInput = document.querySelector("#badge-warn");
 const badgeUrgentInput = document.querySelector("#badge-urgent");
+const badgeEnabledInput = document.querySelector("#badge-enabled");
+const bannerEnabledInput = document.querySelector("#banner-enabled");
+const bannerPositionInput = document.querySelector("#banner-position");
 const status = document.querySelector("#status");
 
 function parseDomains(value) {
@@ -65,6 +68,10 @@ async function loadSettings() {
   rewardDurationUnitInput.value = settings.rewardDurationUnit ?? settings.rewardUnit ?? "minutes";
   badgeWarnInput.value = settings.badgeWarnMinutes ?? 5;
   badgeUrgentInput.value = settings.badgeUrgentMinutes ?? 1;
+  badgeEnabledInput.checked = settings.badgeEnabled !== false;
+  bannerEnabledInput.checked = settings.bannerEnabled !== false;
+  bannerPositionInput.value = settings.bannerPosition === "top" ? "top" : "bottom";
+  bannerPositionInput.disabled = !bannerEnabledInput.checked;
   blockOpenTabsInput.checked = settings.blockOpenTabs !== false;
 }
 
@@ -81,6 +88,9 @@ form.addEventListener("submit", async (event) => {
     const rewardDurationUnit = rewardDurationUnitInput.value;
     const badgeWarnMinutes = Number(badgeWarnInput.value);
     const badgeUrgentMinutes = Number(badgeUrgentInput.value);
+    const badgeEnabled = badgeEnabledInput.checked;
+    const bannerEnabled = bannerEnabledInput.checked;
+    const bannerPosition = bannerPositionInput.value === "top" ? "top" : "bottom";
     const blockOpenTabs = blockOpenTabsInput.checked;
 
     if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(username)) {
@@ -95,15 +105,16 @@ form.addEventListener("submit", async (event) => {
 
     if (!Number.isInteger(badgeWarnMinutes) || !Number.isInteger(badgeUrgentMinutes)
         || badgeUrgentMinutes < 1) {
-      throw new Error("Badge thresholds must be whole numbers of at least 1 minute.");
+      throw new Error("Warning thresholds must be whole numbers of at least 1 minute.");
     }
     if (badgeUrgentMinutes >= badgeWarnMinutes) {
-      throw new Error("The red badge threshold must be lower than the yellow one.");
+      throw new Error("The red warning threshold must be lower than the yellow one.");
     }
 
     await chrome.storage.sync.set({
       [SETTINGS_KEY]: {
         username, domains, blockOpenTabs, badgeWarnMinutes, badgeUrgentMinutes,
+        badgeEnabled, bannerEnabled, bannerPosition,
         commitWithin, commitWithinUnit, rewardDuration, rewardDurationUnit
       }
     });
@@ -119,6 +130,10 @@ form.addEventListener("submit", async (event) => {
   } catch (error) {
     showStatus(error.message, true);
   }
+});
+
+bannerEnabledInput.addEventListener("change", () => {
+  bannerPositionInput.disabled = !bannerEnabledInput.checked;
 });
 
 loadSettings().catch((error) => {

@@ -98,10 +98,11 @@ function renderRewardBanner(state) {
   bar.setAttribute("role", "status");
   const sheet = new CSSStyleSheet();
   sheet.replaceSync(
-    ".bar{all:initial;position:fixed;top:0;left:0;right:0;z-index:2147483646;"
+    ".bar{all:initial;position:fixed;left:0;right:0;z-index:2147483646;"
     + "box-sizing:border-box;padding:8px 16px;text-align:center;"
-    + "font:600 14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
-    + "box-shadow:0 2px 8px rgb(0 0 0 / 25%)}"
+    + "font:600 14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}"
+    + ".top{top:0;box-shadow:0 2px 8px rgb(0 0 0 / 25%)}"
+    + ".bottom{bottom:0;box-shadow:0 -2px 8px rgb(0 0 0 / 25%)}"
     + ".yellow{background:#f5b301;color:#2b2100}"
     + ".red{background:#d93025;color:#fff}"
   );
@@ -120,7 +121,7 @@ function renderRewardBanner(state) {
       return;
     }
     bar.style.display = "";
-    bar.className = `bar ${minutesLeft <= state.urgent ? "red" : "yellow"}`;
+    bar.className = `bar ${state.position} ${minutesLeft <= state.urgent ? "red" : "yellow"}`;
     bar.textContent = `Earn Your Dopamine: ${minutesLeft} min of reward time left. `
       + "Push some code to earn more.";
   };
@@ -137,7 +138,9 @@ async function updateBanners(onlyTab) {
   const reward = await getRewardState();
   const active = rewardActive(reward, settings);
   const urgent = positiveNumber(settings.badgeUrgentMinutes, DEFAULT_URGENT_MINUTES);
-  const state = active ? {
+  // Both warnings are on by default; the banner sits at the bottom by default.
+  const state = active && settings.bannerEnabled !== false ? {
+    position: settings.bannerPosition === "top" ? "top" : "bottom",
     expiresAt: reward.expiresAt,
     urgent,
     warn: Math.max(positiveNumber(settings.badgeWarnMinutes, DEFAULT_WARN_MINUTES), urgent)
@@ -164,7 +167,7 @@ async function updateBadge() {
   const reward = await getRewardState();
   const now = Date.now();
 
-  if (!settings || !rewardActive(reward, settings, now)) {
+  if (!settings || !rewardActive(reward, settings, now) || settings.badgeEnabled === false) {
     await chrome.alarms.clear(BADGE_ALARM);
     await chrome.action.setBadgeText({ text: "" });
     return;

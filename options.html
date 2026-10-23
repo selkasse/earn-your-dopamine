@@ -48,14 +48,30 @@
         </div>
         <p class="hint">How long blocked sites stay unlocked once a push earns a reward. Each push can be redeemed once.</p>
 
-        <label for="badge-warn">Badge warnings (minutes left)</label>
+        <label for="badge-warn">Warning thresholds (minutes left)</label>
         <div class="reward">
           <input id="badge-warn" name="badge-warn" type="number" min="1" step="1" value="5" required
-            aria-label="Yellow badge threshold in minutes">
+            aria-label="Yellow warning threshold in minutes">
           <input id="badge-urgent" name="badge-urgent" type="number" min="1" step="1" value="1" required
-            aria-label="Red badge threshold in minutes">
+            aria-label="Red warning threshold in minutes">
         </div>
-        <p class="hint">Left: show a yellow badge at this many minutes left. Right: switch to red. The badge is hidden until the yellow threshold, and the red value must be lower.</p>
+        <p class="hint">Left: show a yellow warning at this many minutes left. Right: switch to red. Nothing is shown until the yellow threshold, and the red value must be lower.</p>
+
+        <label class="checkbox" for="badge-enabled">
+          <input id="badge-enabled" name="badge-enabled" type="checkbox" checked>
+          Show minutes left on the toolbar badge
+        </label>
+
+        <label class="checkbox" for="banner-enabled">
+          <input id="banner-enabled" name="banner-enabled" type="checkbox" checked>
+          Show a banner on blocked sites
+        </label>
+
+        <label for="banner-position">Banner position</label>
+        <select id="banner-position" name="banner-position">
+          <option value="bottom">Bottom of the page</option>
+          <option value="top">Top of the page</option>
+        </select>
 
         <label class="checkbox" for="block-open-tabs">
           <input id="block-open-tabs" name="block-open-tabs" type="checkbox" checked>
