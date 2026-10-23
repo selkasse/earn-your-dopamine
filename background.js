@@ -125,7 +125,7 @@ function renderRewardBanner(state) {
   };
   tick();
   document.documentElement.append(host);
-  window.__earnYourDopamineTimer = setInterval(tick, 5000);
+  window.__earnYourDopamineTimer = setInterval(tick, 1000);
 }
 
 // Adds, updates or removes the banner on every blocked-site tab (or one tab).
@@ -164,11 +164,17 @@ async function updateBadge() {
   const now = Date.now();
 
   if (!settings || !rewardActive(reward, settings, now)) {
+    await chrome.alarms.clear(BADGE_ALARM);
     await chrome.action.setBadgeText({ text: "" });
     return;
   }
 
   const minutesLeft = Math.max(1, Math.ceil((reward.expiresAt - now) / UNIT_MS.minutes));
+  // Wake exactly when the displayed minute changes so the badge matches the
+  // banner, which derives its count from the same expiry time.
+  chrome.alarms.create(BADGE_ALARM, {
+    when: reward.expiresAt - (minutesLeft - 1) * UNIT_MS.minutes + 500
+  });
   const urgent = positiveNumber(settings.badgeUrgentMinutes, DEFAULT_URGENT_MINUTES);
   const warn = Math.max(positiveNumber(settings.badgeWarnMinutes, DEFAULT_WARN_MINUTES), urgent);
 
@@ -539,7 +545,6 @@ function configureRefreshAlarm() {
     periodInMinutes: REFRESH_INTERVAL_MINUTES
   });
   chrome.alarms.create(ENFORCE_ALARM, { delayInMinutes: 1, periodInMinutes: 1 });
-  chrome.alarms.create(BADGE_ALARM, { delayInMinutes: 1, periodInMinutes: 1 });
   scheduleRewardEnd();
   refreshBadge();
 }
