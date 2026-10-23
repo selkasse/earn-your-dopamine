@@ -738,10 +738,18 @@ function toggleBlockOverlay(show, { markup, css, site } = {}) {
     button.disabled = true;
     note.textContent = "Checking\u2026";
     try {
+      const runtime = globalThis.chrome?.runtime;
+      if (typeof runtime?.sendMessage !== "function") {
+        console.error("Chrome runtime API is unavailable.");
+        note.textContent =
+          "The extension connection is unavailable. Refresh this page and try again.";
+        return;
+      }
+
       // The service worker may be waking up, which can yield an empty reply.
-      let result = await chrome.runtime.sendMessage({ type: "recheck" });
+      let result = await runtime.sendMessage({ type: "recheck" });
       if (!result)
-        result = await chrome.runtime.sendMessage({ type: "recheck" });
+        result = await runtime.sendMessage({ type: "recheck" });
       if (!result)
         throw new Error("No response from the extension. Try again.");
       if (result.allowed) return hide();
