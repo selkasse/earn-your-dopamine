@@ -333,6 +333,7 @@ async function checkEligibility(settings, options) {
   const cache = await refreshActivity(settings, options);
   const alreadyRedeemed = reward?.username === settings.username
     && Number.isFinite(reward.redeemedPushAt)
+    && Number.isFinite(cache?.latestPushAt)
     && cache.latestPushAt <= reward.redeemedPushAt + SAME_PUSH_TOLERANCE_MS;
 
   if (hasRecentPush(cache, settings) && !alreadyRedeemed) {
@@ -471,8 +472,11 @@ function toggleBlockOverlay(show, { markup, css, site } = {}) {
     button.disabled = true;
     note.textContent = "Checking\u2026";
     try {
-      const result = await chrome.runtime.sendMessage({ type: "recheck" });
-      if (result?.allowed) return hide();
+      // The service worker may be waking up, which can yield an empty reply.
+      let result = await chrome.runtime.sendMessage({ type: "recheck" });
+      if (!result) result = await chrome.runtime.sendMessage({ type: "recheck" });
+      if (!result) throw new Error("No response from the extension. Try again.");
+      if (result.allowed) return hide();
       const time = new Date().toLocaleTimeString();
       const withinMinutes = Math.round((result?.commitWithinMs ?? 0) / 60000);
       if (result?.error) {
@@ -486,7 +490,7 @@ function toggleBlockOverlay(show, { markup, css, site } = {}) {
           : `Checked at ${time}: your last push was ${minutesAgo} min ago, outside your ${withinMinutes} min window. GitHub can take a minute to show new pushes.`;
       }
     } catch (error) {
-      note.textContent = `Something went wrong: ${error.message}`;
+      note.textContent = `Something went wrong: ${error?.message || "please reload the page."}`;
     } finally {
       button.disabled = false;
     }
@@ -587,13 +591,14 @@ chrome.webNavigation.onCompleted.addListener((details) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type !== "recheck") return;
 
-  getSettings().then(async (settings) => {
-    if (!settings?.username) return { allowed: false, error: "No GitHub username is configured." };
+  (async () => {
     try {
+      const settings = await getSettings();
+      if (!settings?.username) return { allowed: false, error: "No GitHub username is configured." };
       return await checkEligibility(settings, { force: true });
     } catch (error) {
-      return { allowed: false, error: error.message };
+      return { allowed: false, error: error?.message || String(error) };
     }
-  }).then(sendResponse);
+  })().then(sendResponse);
   return true;
 });

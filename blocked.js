@@ -31,8 +31,11 @@ recheck.addEventListener("click", async () => {
   recheck.disabled = true;
   errorEl.textContent = "Checking\u2026";
   try {
-    const result = await chrome.runtime.sendMessage({ type: "recheck" });
-    if (result?.allowed) {
+    // The service worker may be waking up, which can yield an empty reply.
+    let result = await chrome.runtime.sendMessage({ type: "recheck" });
+    if (!result) result = await chrome.runtime.sendMessage({ type: "recheck" });
+    if (!result) throw new Error("No response from the extension. Try again.");
+    if (result.allowed) {
       if (target) {
         window.location.href = target;
       } else {
@@ -44,7 +47,7 @@ recheck.addEventListener("click", async () => {
       ? `We couldn't verify your GitHub activity: ${result.error}`
       : describeNoPush(result ?? {});
   } catch (error) {
-    errorEl.textContent = `Something went wrong: ${error.message}`;
+    errorEl.textContent = `Something went wrong: ${error?.message || "please reload the page."}`;
   } finally {
     recheck.disabled = false;
   }
