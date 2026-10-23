@@ -4,6 +4,9 @@ const REWARD_KEY = "rewardState";
 const REFRESH_ALARM = "refresh-github-activity";
 const ENFORCE_ALARM = "enforce-open-tabs";
 const BADGE_ALARM = "update-badge";
+const REWARD_END_ALARM = "reward-ended";
+// The events feed and a repo's pushed_at time the same push a few seconds apart.
+const SAME_PUSH_TOLERANCE_MS = 2 * 60 * 1000;
 const BADGE_YELLOW = "#f5b301";
 const BADGE_RED = "#d93025";
 const DEFAULT_WARN_MINUTES = 5;
@@ -179,6 +182,14 @@ async function updateBadge() {
   await chrome.action.setBadgeText({ text: String(minutesLeft) });
 }
 
+// Fires right when the reward runs out so open tabs are blocked immediately.
+async function scheduleRewardEnd() {
+  const reward = await getRewardState();
+  if (Number.isFinite(reward?.expiresAt) && reward.expiresAt > Date.now()) {
+    chrome.alarms.create(REWARD_END_ALARM, { when: reward.expiresAt + 1000 });
+  }
+}
+
 function refreshBadge() {
   updateBadge().catch((error) => console.error("Could not update badge:", error));
   updateBanners().catch((error) => console.error("Could not update banners:", error));
@@ -312,7 +323,7 @@ async function checkEligibility(settings, options) {
   const cache = await refreshActivity(settings, options);
   const alreadyRedeemed = reward?.username === settings.username
     && Number.isFinite(reward.redeemedPushAt)
-    && cache.latestPushAt <= reward.redeemedPushAt;
+    && cache.latestPushAt <= reward.redeemedPushAt + SAME_PUSH_TOLERANCE_MS;
 
   if (hasRecentPush(cache, settings) && !alreadyRedeemed) {
     await chrome.storage.local.set({
@@ -322,6 +333,7 @@ async function checkEligibility(settings, options) {
         redeemedPushAt: cache.latestPushAt
       }
     });
+    scheduleRewardEnd();
     refreshBadge();
     return { allowed: true, error: null };
   }
@@ -512,9 +524,9 @@ async function enforceOpenTabs() {
   try {
     result = await checkEligibility(settings);
   } catch (error) {
+    // Like navigation, an unverifiable reward counts as not earned.
     console.error("Could not check GitHub activity for open tabs:", error);
-    // Don't kick the user out of open tabs just because the API check failed.
-    return;
+    result = { allowed: false };
   }
 
   // Lift any overlay once a push is found; otherwise cover the open tabs.
@@ -528,6 +540,7 @@ function configureRefreshAlarm() {
   });
   chrome.alarms.create(ENFORCE_ALARM, { delayInMinutes: 1, periodInMinutes: 1 });
   chrome.alarms.create(BADGE_ALARM, { delayInMinutes: 1, periodInMinutes: 1 });
+  scheduleRewardEnd();
   refreshBadge();
 }
 
@@ -540,7 +553,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     });
   }
   if (alarm.name === BADGE_ALARM) refreshBadge();
-  if (alarm.name === ENFORCE_ALARM) {
+  if (alarm.name === ENFORCE_ALARM || alarm.name === REWARD_END_ALARM) {
+    if (alarm.name === REWARD_END_ALARM) refreshBadge();
     enforceOpenTabs().catch((error) => {
       console.error("Could not enforce blocking on open tabs:", error);
     });
