@@ -1,23 +1,16 @@
-# UI/UX Alignment Fix for Warning Badges
+# UX Fix for Device Flow & UI Cleanup
 
-The layout for the "Warning Badges" section is now on a single line, which is great, but the varying lengths of the text labels ("Show yellow warning at:" vs "Show red warning at:") are causing the input boxes to be vertically misaligned. It looks jagged.
+The current Device Flow implementation is confusing because the extension automatically opens the new GitHub tab, which causes the user to lose sight of the `user_code` they need to enter. Furthermore, Chrome kills the extension popup when focus is lost.
 
-Please update the CSS for this specific section to ensure perfect vertical alignment of the input boxes and trailing text.
-
-test update. agent ignore this line
+We need to change the order of operations so the user sees the code _before_ the new tab opens.
 
 **Instructions:**
 
-1. Wrap the two warning badge rows in a dedicated container if they aren't already.
-2. Apply a CSS Grid layout to this container to act like a 3-column table:
-   - `display: grid;`
-   - `grid-template-columns: max-content 60px max-content;` (or similar, adjusting the middle column for the input box width).
-   - `align-items: center;`
-   - `row-gap: 12px;`
-   - `column-gap: 8px;`
-3. Ensure the elements fall into the grid properly:
-   - Column 1: The text labels ("Show yellow warning at:", "Show red warning at:") - set their text alignment to `right` so they hug the input boxes.
-   - Column 2: The number inputs.
-   - Column 3: The trailing text ("minutes left").
-4. Alternatively, if keeping Flexbox is easier for the current DOM structure, enforce a strict `width` (e.g., `width: 170px; text-align: right;`) on the text labels so they push the input boxes to the exact same vertical X-coordinate.
-5. Verify that the input boxes are perfectly stacked on top of each other, then continue the autonomous loop.
+1. **Stop Auto-Opening the Tab:** When the user initiates the sign-in and you receive the `user_code` and `verification_uri` from GitHub, DO NOT automatically open a new tab.
+2. **Display Code First:** Update the UI to show the `user_code` prominently.
+3. **Copy & Continue Button:** Add a button below the code that says "Copy Code & Open GitHub".
+4. **Action on Click:** When the user clicks this new button:
+   - Programmatically copy the `user_code` to the user's clipboard using the Clipboard API (`navigator.clipboard.writeText`).
+   - THEN open the `verification_uri` in a new tab (`window.open`).
+5. **Enforce Mandatory Auth (Cleanup):** I can still see the manual "GitHub username" input box and the old rate limit helper text in the UI. Please completely remove the manual username input box and the subtext about "Optional. Signing in raises...". Users should only see the OAuth flow.
+6. Test this new sequence, ensure the clipboard copy works, and continue the autonomous loop.

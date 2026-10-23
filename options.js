@@ -136,6 +136,46 @@ bannerEnabledInput.addEventListener("change", () => {
   bannerPositionInput.disabled = !bannerEnabledInput.checked;
 });
 
+const authText = document.querySelector("#auth-text");
+const authButton = document.querySelector("#auth-button");
+
+async function renderAuth() {
+  const stored = await chrome.storage.local.get(["githubAuth", "githubDeviceFlow"]);
+  const flow = stored.githubDeviceFlow;
+  authButton.disabled = false;
+  if (stored.githubAuth?.token) {
+    authText.textContent = "Signed in with GitHub.";
+    authButton.textContent = "Sign out";
+    authButton.dataset.action = "signOut";
+  } else if (flow && !flow.error) {
+    authText.textContent = `Enter code ${flow.userCode} at ${flow.verificationUri}, then return here.`;
+    authButton.textContent = "Cancel";
+    authButton.dataset.action = "cancelSignIn";
+  } else {
+    authText.textContent = flow?.error ?? "Not signed in.";
+    authButton.textContent = "Sign in with GitHub";
+    authButton.dataset.action = "startSignIn";
+  }
+}
+
+authButton.addEventListener("click", async () => {
+  authButton.disabled = true;
+  const action = authButton.dataset.action;
+  const result = await chrome.runtime.sendMessage({ type: action });
+  if (result?.error) {
+    showStatus(result.error, true);
+  } else if (action === "startSignIn" && result?.verificationUri) {
+    window.open(result.verificationUri, "_blank", "noopener");
+  }
+  await renderAuth();
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && (changes.githubAuth || changes.githubDeviceFlow)) renderAuth();
+});
+
+renderAuth();
+
 loadSettings().catch((error) => {
   showStatus(`Couldn't load settings: ${error.message}`, true);
 });
