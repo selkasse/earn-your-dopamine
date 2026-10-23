@@ -48,14 +48,16 @@
         </div>
         <p class="hint">How long blocked sites stay unlocked once a push earns a reward. Each push can be redeemed once.</p>
 
-        <label for="badge-warn">Warning thresholds (minutes left)</label>
-        <div class="reward">
-          <input id="badge-warn" name="badge-warn" type="number" min="1" step="1" value="5" required
-            aria-label="Yellow warning threshold in minutes">
-          <input id="badge-urgent" name="badge-urgent" type="number" min="1" step="1" value="1" required
-            aria-label="Red warning threshold in minutes">
+        <span class="label" id="warnings-label">Warning Badges</span>
+        <div class="warning-thresholds" role="group" aria-labelledby="warnings-label">
+          <label for="badge-warn">Show yellow warning at:</label>
+          <input id="badge-warn" name="badge-warn" type="number" min="1" step="1" value="5" required>
+          <span>minutes left</span>
+          <label for="badge-urgent">Show red warning at:</label>
+          <input id="badge-urgent" name="badge-urgent" type="number" min="1" step="1" value="1" required>
+          <span>minutes left</span>
         </div>
-        <p class="hint">Left: show a yellow warning at this many minutes left. Right: switch to red. Nothing is shown until the yellow threshold, and the red value must be lower.</p>
+        <p class="hint">Change the extension icon color as your break comes to an end.</p>
 
         <label class="checkbox" for="badge-enabled">
           <input id="badge-enabled" name="badge-enabled" type="checkbox" checked>

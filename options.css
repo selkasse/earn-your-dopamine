@@ -50,7 +50,8 @@ form {
   gap: 10px;
 }
 
-label {
+label,
+.label {
   margin-top: 8px;
   font-size: 14px;
   font-weight: 650;
@@ -135,4 +136,43 @@ label.checkbox {
 label.checkbox input {
   width: auto;
   min-height: 0;
+}
+
+.label {
+  display: block;
+}
+
+.warning-thresholds {
+  display: grid;
+  grid-template-columns: max-content 4rem max-content;
+  align-items: center;
+  row-gap: 12px;
+  column-gap: 8px;
+  font-size: 14px;
+}
+
+.warning-thresholds label {
+  margin: 0;
+  font-size: inherit;
+  white-space: nowrap;
+  text-align: right;
+  font-weight: 500;
+}
+
+.warning-thresholds input {
+  width: 4rem;
+}
+
+.warning-thresholds span {
+  white-space: nowrap;
+}
+
+@media (max-width: 400px) {
+  .settings {
+    padding: 16px;
+  }
+
+  .warning-thresholds {
+    font-size: 12px;
+  }
 }

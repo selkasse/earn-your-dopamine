@@ -108,7 +108,7 @@ form.addEventListener("submit", async (event) => {
       throw new Error("Warning thresholds must be whole numbers of at least 1 minute.");
     }
     if (badgeUrgentMinutes >= badgeWarnMinutes) {
-      throw new Error("The red warning threshold must be lower than the yellow one.");
+      throw new Error("The red warning time must be lower than the yellow warning time.");
     }
 
     await chrome.storage.sync.set({
