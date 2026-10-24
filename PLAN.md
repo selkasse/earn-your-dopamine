@@ -1,5 +1,7 @@
 # Bug Fix: Uncaught TypeError in blocked.html
 
+fake an update
+
 The blocked page (`blocked.html`) is occasionally throwing the following error when the user clicks the "I pushed — check again" button:
 `Something went wrong: Cannot read properties of undefined (reading 'sendMessage')`
 
